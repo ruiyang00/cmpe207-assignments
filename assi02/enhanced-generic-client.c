@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <netdb.h>
 
 
 #define SA struct sockaddr
@@ -80,7 +81,7 @@ void udpClient(struct in_addr ina, char *msg) {
 	close(sockfd);
 	exit(0);
 }
-int optionCheck(char* option)
+int ValidateOption(char* option)
 {
 	if(strcmp(option, "-m") == 0 || 
 		strcmp(option, "-h") == 0 || 
@@ -90,60 +91,58 @@ int optionCheck(char* option)
 	}
 
 	return -1;
-
 }
 
-/*
-void setOpts(char* arr[], char* msg, char* hn, char* sn, char* protocol, int argn)
+void ValidateOpts(char* argv[], int argc)
 {
-	for(int i = 1; i < argn; i+=2) {
-		if(strcmp(arr[i] == "-m") == 0) {
-			msg = arr[i+1];
+	for(int i = 1; i < argc; i+=2) {
+        if(ValidateOption(argv[i]) == -1) {
+            printf("Check your args, we only support -m, -h, -s, -p four options\n");
+            exitWithError();
+        }
+    }
+}
+
+void SetOpts(char* arr[],int argc, int *msg, int *hn, int *sn, int *protocol)
+{
+	for(int i = 1; i < argc; i+=2) {
+		if(strcmp(arr[i], "-m") == 0) {
+			*msg = i + 1;
 		} else if(strcmp(arr[i], "-h") == 0) {
-			hn = argv[i+1];
-		} else if(strcmpe(arr[i], "-s") == 0) {
-			sn = arr[i+1];
+			*hn = i + 1;
+		} else if(strcmp(arr[i], "-s") == 0) {
+			*sn = i + 1;
 		} else if(strcmp(arr[i], "-p") == 0){
-			protocol = arr[i+1];
+			*protocol = i + 1;
 		}
 	}
-}*/
-int main(int argc, char* argv[]) {
+}
 
+
+int main(int argc, char* argv[]) {
+	//struct hostent *he;
+	//he = gethostbyname("google.com");
+	//printf("IP address=%s\n", inet_ntoa(*(struct in_addr*) he->h_addr));
 	if (argc != 9) {
 		printf("Error:Inputs either too less or too many\n");
 		printf("Please follow format: ./echo_client YourMsg 127.0.0.1 -tcp/-udp\n");
 		exitWithError();
 	}
-
 	
-	//if options are not correct we exit here
-	/*
-    if(optionCheck(argv[1]) == -1 || optionCheck(argv[3]) == -1
-        || optionCheck(argv[5]) == -1 || optionCheck(argv[7]) == -1) {
-		printf("Check your args, we only support -m, -h, -s, -p four options\n");
-        exitWithError();
-    }*/
+
+	//check the command inputs for -m, -s, -p, -h
+	ValidateOpts(argv, argc);
 
 
-	for(int i = 1; i < argc; i+=2) {
-		if(optionCheck(argv[i]) == -1) {
-			printf("Check your args, we only support -m, -h, -s, -p four options\n");
-        	exitWithError();
-		}
-        //printf("opt=%s, ret=%d\n",argv[i], optionCheck(argv[i]));
-    }
-
-	for(int i = 0; i < argc; i++) {
-        printf("argv[%d]=%s\n",i, argv[i]);
-    }
-	/*
-
-	//char* sn, msg, hn, protocol; // varible holders for server name, message, hostname, and protocol
-	//setOpts(argv, sn, msg, hn, protocol);
-	
+	int sn, msg, hn, protocol; // varible holders for server name, message, hostname, and protocol
+	SetOpts(argv, argc, &sn, &msg, &hn, &protocol);
+	printf("sn=%d\n",sn);
+	printf("msg=%d\n",msg);
+	printf("hn=%d\n",hn);
+	printf("protocol=%d\n",protocol);
 	struct in_addr ina;
-	int ret = inet_aton(sn, &ina);
+	char* snp = argv[sn];
+	int ret = inet_aton(snp, &ina);
 
 	if(ret == 0) {
 		exitWithError();
@@ -156,7 +155,6 @@ int main(int argc, char* argv[]) {
 	} else {
 		exitWithError();
 	}
-	*/
 
 	exit(0);
 }
