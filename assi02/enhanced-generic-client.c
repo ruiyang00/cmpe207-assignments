@@ -162,6 +162,7 @@ int main(int argc, char* argv[]) {
 	struct servent *svent;
 	svent=getservbyname(argv[sn], argv[protocol]);
 	if(svent == NULL) {
+		printf("check with your -p&-s args\n");
 		exitSysWithError("gethservbyname()");
 	}
 
