@@ -173,7 +173,7 @@ int main(int argc, char* argv[]) {
 	if(ret == 0) {
 		exitSysWithError("inet_aton()");
 	}
-	int port_int = ntohs(svent->s_port);
+	int port_int = 2200;
 
 
 
