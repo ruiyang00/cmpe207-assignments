@@ -39,14 +39,16 @@ void validateUnameArg(char *buffer, struct UnameMap *m);
 
 int main(int argc, char **argv) {
 
-	int port_flag; //check if we have port number input
+	/*set to ON if we have input after -port else OFF*/
+	int port_flag;
+	/*set to UDP|TCP*/
 	int trans_flag; //flag to check which transport specified 
 
 	//TBD: check input argvi
 	validateArgv(argc, argv, &port_flag, &trans_flag);
-	printf("port_number=%d\n",port_flag);
-	printf("trans_flag=%d\n",trans_flag);
 
+	
+	/*calling the server function to do work base on trans_flag*/
 	if(trans_flag == UDP) {
 		udpServer(argv, &port_flag);
 	}else if(trans_flag == TCP) {
@@ -56,6 +58,7 @@ int main(int argc, char **argv) {
 	}
 	return 0;
 }
+
 void udpServer(char **argv, int *port) {
 	int sockfd, len;
     struct sockaddr_in servaddr, clientaddr;
@@ -184,12 +187,8 @@ void tcpServer(char **argv, int *port) {
 		//TBD: read()/recv()
 		memset(buffer, 0, sizeof buffer);
 		while((ret = recv(client_sockfd, buffer, BUFFER_LEN, 0)) > 0) {
-			buffer[strlen(buffer)] = '\0';
-			printf("strlen=%ld\n", strlen(buffer));
 			printf("received message=%s\n", buffer);
-			printf("ret=%d\n",ret);
 			unameCaller(buffer);
-			printf("buffer=%s\n",buffer);
 			write(client_sockfd, buffer, strlen(buffer));
 		}
 	
@@ -243,52 +242,45 @@ void unameCaller(char *buffer){
         strcat(buffer,ustr.sysname);
 		strcat(buffer, " ");
 		printf("buffer=%s\n", buffer);
-		printf("len=%d\n", len);
 
 
 		/*concatinating server name to the buffer*/
         strcat(buffer,ustr.nodename);
 		strcat(buffer, " ");
 		printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
 		
 		/*concatinating release versiov to the buffer*/
         strcat(buffer, ustr.release);
 		strcat(buffer, " ");
 		printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
 
 
 		/*concatinating os distro to the buffer*/
         strcat(buffer, ustr.version);
 		strcat(buffer, " ");
 		printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
 
-		/*concatinating machine to the buffer
-        len += strlen(ustr.machine);
+		/*concatinating machine to the buffer*/
         strcat(buffer, ustr.machine);
-        buffer[len++] = ' ';
-		*/
+		strcat(buffer, " ");
+	
 	
 		
-		/*concatinating processor to the buffer
-        len += strlen(ustr.machine);
+		/*concatinating processor to the buffer*/
         strcat(buffer, ustr.machine);
-        buffer[len] = ' ';*/
+		strcat(buffer, " ");
+        printf("buffer=%s\n", buffer);
+     
 
 		/*concatinating hardware archit to the buffer*/
         strcat(buffer, ustr.machine);
 		strcat(buffer, " ");
 		printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
 
 		/*concatinating os to the buffer*/
         strcat(buffer, ustr.sysname);
 		strcat(buffer, "\0");
 		printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
-
 
 		return;
 	}
@@ -301,54 +293,44 @@ void unameCaller(char *buffer){
 		strcat(buffer,ustr.sysname);
         strcat(buffer, " ");
         printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
 	}
 
 	if(m.nbit == 1) {
         strcat(buffer, ustr.nodename);
 		strcat(buffer, " ");
 		printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
 	}
 	if(m.rbit == 1) {
 		strcat(buffer, ustr.release);
 		strcat(buffer, " ");
 		printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
 	}
 	if(m.vbit == 1) {
         strcat(buffer, ustr.version);
 		strcat(buffer, " ");
 		printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
     }
 	if(m.mbit == 1) {
         strcat(buffer, ustr.machine);
 		strcat(buffer, " ");
 		printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
     }
 	if(m.pbit == 1) {
         strcat(buffer, ustr.machine);
 		strcat(buffer, " ");
 		printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
     }
 	if(m.ibit == 1) {
         strcat(buffer, ustr.machine);
 		strcat(buffer, " ");
 		printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
     }
 	if(m.obit == 1) {
         strcat(buffer,ustr.sysname);
 		strcat(buffer, " ");
-		buffer[len] = ' ';
 		printf("buffer=%s\n", buffer);
-        printf("len=%d\n", len);
 	}
 	strcat(buffer, "\0");
-	printf("len=%d\n", len);
 	printf("buffer=%s\n", buffer);
 
 
@@ -359,33 +341,23 @@ void validateUnameArg(char *b, struct UnameMap *m) {
 	for(int i = 0; b[i] != '\0'; i++) {
 		char c = b[i];
 		printf("b[%d]=%s\n",i, &c);
-		printf("strcmp=%d\n", strcmp(&c, "n"));
 		if('a' == c) {
-			printf("strcmp=%d\n",strcmp("a", &c));
 			m->abit = 1;
 		} else if(c == 's') {
-			printf("strcmp=%d\n",strcmp("s", &c));
 			m->sbit = 1;
 		} else if(c == 'n') {
-			printf("strcmp=%d\n",strcmp("n", &c));
             m->nbit = 1;
         } else if(c == 'r') {
-			printf("strcmp=%d\n",strcmp("r", &c));
             m->rbit = 1;
         } else if(c == 'v') {
-			printf("strcmp=%d\n",strcmp("v", &c));
             m->vbit = 1;
         } else if(c == 'm') {
-			printf("strcmp=%d\n",strcmp("m", &c));
             m->mbit = 1;
         } else if(c == 'p') {
-			printf("strcmp=%d\n",strcmp("p", &c));
             m->pbit = 1;
         } else if(c == 'o') {
-			printf("strcmp=%d\n",strcmp("o", &c));
             m->obit = 1;
         } else if(c == 'i') {
-			printf("strcmp=%d\n",strcmp("i", &c));
             m->ibit = 1;
 		} else if(c != ' '){
 			return;
