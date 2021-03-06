@@ -13,7 +13,7 @@
 #define TCP 1
 #define ON 1
 #define OFF 0
-#define BUFFER_LEN 2048
+#define BUFFER_LEN 4096
 
 struct UnameMap{
 	int sbit;
@@ -33,9 +33,10 @@ void exitWithError();
 void exitSysWithError(char *call);
 void udpServer(char **argv, int *port_flag);
 void tcpServer(char **argv, int *port_flag);
-void unameCaller(char *buffer);
+int unameCaller(char *buffer);
 void validatePortArg(char *buffer);
-void validateUnameArg(char *buffer, struct UnameMap *m);
+int validateUnameArg(char *buffer, struct UnameMap *m);
+void removeSpace(char *buffer);
 
 int main(int argc, char **argv) {
 
@@ -105,6 +106,7 @@ void udpServer(char **argv, int *port) {
         printf("Server listening...\n");
     }
 
+	int unameret;
 
 	while(1) {
         len = sizeof(clientaddr);
@@ -112,9 +114,13 @@ void udpServer(char **argv, int *port) {
 		//TBD: recvfrom()
 		ret = recvfrom(sockfd, buffer, BUFFER_LEN, 0, &clientaddr, &len);
         buffer[ret] = '\0';
-        unameCaller(buffer);
+		
+        unameret = unameCaller(buffer);
 		//TBD: sendto()
         sendto(sockfd, buffer, strlen(buffer), 0, &clientaddr, len);
+		if(unameret == 0) {
+            exit(0);
+        }
     }
 	
 	//TBD: close()
@@ -186,12 +192,17 @@ void tcpServer(char **argv, int *port) {
 
 		//TBD: read()/recv()
 		memset(buffer, 0, sizeof buffer);
+		int unameret;
 		while((ret = recv(client_sockfd, buffer, BUFFER_LEN, 0)) > 0) {
-			printf("received message=%s\n", buffer);
-			unameCaller(buffer);
+			removeSpace(buffer);
+			unameret = unameCaller(buffer);
 			write(client_sockfd, buffer, strlen(buffer));
+			memset(buffer, 0, sizeof buffer);	
+			if (unameret == 0) {
+                exit(0);
+            }
 		}
-	
+
 		if(ret == 0) {
 			printf("connection close with client: %s...\n", inet_ntoa(client.sin_addr));
 		} else if(ret == -1) {
@@ -202,15 +213,16 @@ void tcpServer(char **argv, int *port) {
 	exit(0);
 }
 
-void unameCaller(char *buffer){
+int unameCaller(char *buffer){
 
 	struct utsname ustr;
 	char *temp;
 	int ret;
 	struct UnameMap m;
 	int len = 0;
+	char *argvBuffer;
 	
-
+	
 	memset(&m, 0, sizeof(m));
 	ret = uname(&ustr);
     
@@ -219,17 +231,20 @@ void unameCaller(char *buffer){
 		exitSysWithError("uname()");
 	}
 
-	validateUnameArg(buffer, &m);
+	ret = validateUnameArg(buffer, &m);
+	if(ret == 1) {
+		return 0;
+	}
 	memset(buffer, 0, sizeof buffer);
 
-	/*if we don't return right here that means all inputs are validate
+	/*if we don't eturn right here that means all inputs are validate
 	*	else we return a error message to the client notifying that client's input arg
 	* 	is not one of a|s|n|r|v|m|p|o.
 	*/
 	if(m.errorbit == 1) {
-		strcpy(buffer, "we only accept a|s|n|r|v|m|p|o arg inputs\0");
-		printf("errorbit:%s\n", buffer);
-		return;
+		strcat(buffer, "we cannot recognize your input, we only accept a|s|n|r|v|m|p|o\n");
+		strcat(buffer, "Please recconnect to the remote uname server with arg help\n");
+		return 1;
 	}
 
 	/*1)if we reach here, it means that client's args are all validated
@@ -241,24 +256,20 @@ void unameCaller(char *buffer){
 		/*concatinating system name to the buffer*/
         strcat(buffer,ustr.sysname);
 		strcat(buffer, " ");
-		printf("buffer=%s\n", buffer);
 
 
 		/*concatinating server name to the buffer*/
         strcat(buffer,ustr.nodename);
 		strcat(buffer, " ");
-		printf("buffer=%s\n", buffer);
 		
 		/*concatinating release versiov to the buffer*/
         strcat(buffer, ustr.release);
 		strcat(buffer, " ");
-		printf("buffer=%s\n", buffer);
 
 
 		/*concatinating os distro to the buffer*/
         strcat(buffer, ustr.version);
 		strcat(buffer, " ");
-		printf("buffer=%s\n", buffer);
 
 		/*concatinating machine to the buffer*/
         strcat(buffer, ustr.machine);
@@ -266,23 +277,22 @@ void unameCaller(char *buffer){
 	
 	
 		
-		/*concatinating processor to the buffer*/
+		/*concatinating processor to the buffer
         strcat(buffer, ustr.machine);
 		strcat(buffer, " ");
-        printf("buffer=%s\n", buffer);
+        printf("buffer=%s\n", buffer);*/
      
 
-		/*concatinating hardware archit to the buffer*/
+		/*concatinating hardware archit to the buffer
         strcat(buffer, ustr.machine);
 		strcat(buffer, " ");
-		printf("buffer=%s\n", buffer);
+		printf("buffer=%s\n", buffer);*/
 
 		/*concatinating os to the buffer*/
         strcat(buffer, ustr.sysname);
 		strcat(buffer, "\0");
-		printf("buffer=%s\n", buffer);
 
-		return;
+		return 1;
 	}
 	
 
@@ -292,55 +302,82 @@ void unameCaller(char *buffer){
 	if(m.sbit == 1) {
 		strcat(buffer,ustr.sysname);
         strcat(buffer, " ");
-        printf("buffer=%s\n", buffer);
 	}
 
 	if(m.nbit == 1) {
         strcat(buffer, ustr.nodename);
 		strcat(buffer, " ");
-		printf("buffer=%s\n", buffer);
 	}
 	if(m.rbit == 1) {
 		strcat(buffer, ustr.release);
 		strcat(buffer, " ");
-		printf("buffer=%s\n", buffer);
 	}
 	if(m.vbit == 1) {
         strcat(buffer, ustr.version);
 		strcat(buffer, " ");
-		printf("buffer=%s\n", buffer);
     }
 	if(m.mbit == 1) {
         strcat(buffer, ustr.machine);
 		strcat(buffer, " ");
-		printf("buffer=%s\n", buffer);
     }
 	if(m.pbit == 1) {
         strcat(buffer, ustr.machine);
 		strcat(buffer, " ");
-		printf("buffer=%s\n", buffer);
     }
 	if(m.ibit == 1) {
         strcat(buffer, ustr.machine);
 		strcat(buffer, " ");
-		printf("buffer=%s\n", buffer);
     }
 	if(m.obit == 1) {
         strcat(buffer,ustr.sysname);
 		strcat(buffer, " ");
-		printf("buffer=%s\n", buffer);
 	}
 	strcat(buffer, "\0");
-	printf("buffer=%s\n", buffer);
 
-
+	return 1;
 }
 
-void validateUnameArg(char *b, struct UnameMap *m) {
+void removeSpace(char* b) {
+	int a = 0;
+	for(int n = 0; b[n] != '\0'; ++n) {
+		if(isalpha(b[n]))
+			b[a++] = b[n];
+	}
+	b[a] = '\0';
+}
+
+int validateUnameArg(char *b, struct UnameMap *m) {
+
+	if(strcmp("help", b) == 0) {
+		memset(b, 0, sizeof b);
+		strcat(b," -------------------------------------------------- \n");
+		strcat(b,"| Manual Page for Remote Unameserver: version beta |\n");
+		strcat(b," -------------------------------------------------- \n");
+		strcat(b," 1) s: Prints the kernel name\n");
+		strcat(b," 2) n: Prints the system’s node name (hostname)\n");
+		strcat(b," 3) r: Prints the kernel release\n");
+		strcat(b," 4) v: Prints the kernel version\n");
+		strcat(b," 5) m: Prints the name of the machine’s hardware name\n");
+		strcat(b," 6) p: Prints the architecture of the processor\n");
+		strcat(b," 7) i: Prints the hardware platform\n");
+		strcat(b," 8) o: Print the name of the operating system(Linux)\n");
+		strcat(b," 9) a: Same as snrvmo options\n");
+		return 1;
+	}
+
+	if(strcmp("version", b) == 0) {
+		memset(b, 0, sizeof b);
+		strcat(b, "Remote Uname Server Beta 1.0.0\n");
+		strcat(b, "Copyright Rui Yang\n");
+		strcat(b, "GitHub Link: https://github.com/ruiyang00/cmpe207-assignments/tree/master/assi03\n");
+		strcat(b, "This is free software: you are free to change and redistribute it.\n");
+		strcat(b, "\n");
+		strcat(b, "Written by Rui Yang for the educational purpose\n");
+		return 1;
+	}
 
 	for(int i = 0; b[i] != '\0'; i++) {
 		char c = b[i];
-		printf("b[%d]=%s\n",i, &c);
 		if('a' == c) {
 			m->abit = 1;
 		} else if(c == 's') {
@@ -359,11 +396,11 @@ void validateUnameArg(char *b, struct UnameMap *m) {
             m->obit = 1;
         } else if(c == 'i') {
             m->ibit = 1;
-		} else if(c != ' '){
-			return;
+		} else if(c == ' ') {
+			return 0;
 		} else {
 			m->errorbit=1;
-			return;
+			return 0;
 		}
 	}
 }
@@ -408,6 +445,5 @@ void validateArgv(int argc, char **argv, int *portnum, int *trans_flag) {
 	} else {
 		exitWithError("unrecognized transport. We only accept [-tcp|-udp]");
 	}
-
 	
 }
