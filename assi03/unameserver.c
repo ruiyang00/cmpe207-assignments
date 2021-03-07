@@ -114,7 +114,7 @@ void udpServer(char **argv, int *port) {
 		//TBD: recvfrom()
 		ret = recvfrom(sockfd, buffer, BUFFER_LEN, 0, &clientaddr, &len);
         buffer[ret] = '\0';
-		
+		removeSpace(buffer);	
         unameret = unameCaller(buffer);
 		//TBD: sendto()
         sendto(sockfd, buffer, strlen(buffer), 0, &clientaddr, len);
@@ -372,7 +372,7 @@ int validateUnameArg(char *b, struct UnameMap *m) {
 		strcat(b, "GitHub Link: https://github.com/ruiyang00/cmpe207-assignments/tree/master/assi03\n");
 		strcat(b, "This is free software: you are free to change and redistribute it.\n");
 		strcat(b, "\n");
-		strcat(b, "Written by Rui Yang for the educational purpose\n");
+		strcat(b, "Written by Rui Yang for the remote uname server assignment of cmpe207\n");
 		return 1;
 	}
 
