@@ -121,10 +121,10 @@ void udpServer(char **argv, int *port) {
 		if(unameret == 0) {
             exit(0);
         }
+		//TBD: close()
+		close(sockfd);
     }
 	
-	//TBD: close()
-    close(sockfd);
     exit(0);
 	
 
@@ -208,8 +208,8 @@ void tcpServer(char **argv, int *port) {
 		} else if(ret == -1) {
 			exitSysWithError("recv()");
 		}
+		close(server_sockfd);
 	}
-	close(server_sockfd);
 	exit(0);
 }
 
