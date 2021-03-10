@@ -461,7 +461,7 @@ void validatePortArg(char *buffer) {
 
 
 void exitSysWithError(char *call){
-    fprintf(stderr, "Syscall %s failed with errno=%d\n", call, errno);
+    fprintf(stderr, "Syscall %s failed with errno=%d, msg=%s\n", call, errno, strerror(errno));
     exit(-1);
 }
 void exitWithError(char *call) {
