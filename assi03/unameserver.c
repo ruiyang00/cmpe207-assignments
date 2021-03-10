@@ -9,6 +9,9 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/utsname.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
 #define UDP 2
 #define TCP 1
 #define ON 1
@@ -37,6 +40,9 @@ int unameCaller(char *buffer);
 void validatePortArg(char *buffer);
 int validateUnameArg(char *buffer, struct UnameMap *m);
 void removeSpace(char *buffer);
+void signal_handler(int sig);
+int tcp_sock_handler(int sock, char *buffer);
+int udp_sock_handler(int sock, char *buffer, struct sockaddr_in *clientaddr, int len, int unameret);
 
 int main(int argc, char **argv) {
 
@@ -58,6 +64,46 @@ int main(int argc, char **argv) {
 		exit(-1);
 	}
 	return 0;
+}
+
+int tcp_sock_handler(int sock, char *buffer) {
+	//TBD: read()/recv()
+        memset(buffer, 0, sizeof buffer);
+        int unameret, ret;
+        while((ret = recv(sock, buffer, BUFFER_LEN, 0)) > 0) {
+            removeSpace(buffer);
+            unameret = unameCaller(buffer);
+            write(sock, buffer, strlen(buffer));
+            memset(buffer, 0, sizeof buffer);
+            if (unameret == 0) {
+                exit(0);
+            }
+        }
+
+        if(ret == -1) {
+            exitSysWithError("recv()");
+        }
+		close(sock);
+		return 1;
+}
+int udp_sock_handler(int sockfd, char *buffer, struct sockaddr_in *clientaddr, int len, int unameret) {
+
+	removeSpace(buffer);
+    unameret = unameCaller(buffer);
+    //TBD: sendto()
+    sendto(sockfd, buffer, strlen(buffer), 0, clientaddr, len);
+    if(unameret == 0) {
+		exit(0);
+    }
+	close(sockfd);
+	return 0;
+}
+
+
+void signal_handler(int sig) {
+	int status;
+	while(wait3(&status, WNOHANG, (struct rusage*) 0) > 0);
+	return;
 }
 
 void udpServer(char **argv, int *port) {
@@ -107,24 +153,25 @@ void udpServer(char **argv, int *port) {
     }
 
 	int unameret;
-
+	
+	signal(SIGCHLD, signal_handler);
 	while(1) {
         len = sizeof(clientaddr);
 
 		//TBD: recvfrom()
 		ret = recvfrom(sockfd, buffer, BUFFER_LEN, 0, &clientaddr, &len);
         buffer[ret] = '\0';
-		removeSpace(buffer);	
-        unameret = unameCaller(buffer);
-		//TBD: sendto()
-        sendto(sockfd, buffer, strlen(buffer), 0, &clientaddr, len);
-		if(unameret == 0) {
-            exit(0);
+
+		switch (fork()) {
+            case 0:     /* child */
+                exit(udp_sock_handler(sockfd, buffer, &clientaddr, len, unameret));
+            default:    /* parent */
+                break;
+            case -1:
+                exitSysWithError("fork()");
         }
-		//TBD: close()
-		close(sockfd);
     }
-	
+	close(sockfd);
     exit(0);
 	
 
@@ -180,6 +227,9 @@ void tcpServer(char **argv, int *port) {
 	}else if(*port == ON) {
 		printf("Server listening...\n");
 	}
+
+	/*clean up zombie children*/
+	signal(SIGCHLD, signal_handler);
 	
 	while(1) {
 		//TBD: accept()
@@ -187,29 +237,24 @@ void tcpServer(char **argv, int *port) {
 
 		client_sockfd = accept(server_sockfd, (struct sockaddr*) &client, &client_len);
 		if(client_sockfd < 0) {
+			if(errno==EINTR) {
+				continue;
+			}
 			exitSysWithError("accpet()");
 		}
-
-		//TBD: read()/recv()
-		memset(buffer, 0, sizeof buffer);
-		int unameret;
-		while((ret = recv(client_sockfd, buffer, BUFFER_LEN, 0)) > 0) {
-			removeSpace(buffer);
-			unameret = unameCaller(buffer);
-			write(client_sockfd, buffer, strlen(buffer));
-			memset(buffer, 0, sizeof buffer);	
-			if (unameret == 0) {
-                exit(0);
-            }
+		
+		switch (fork()) {
+			case 0:		/* child */
+				close(server_sockfd);
+				exit(tcp_sock_handler(client_sockfd, buffer));
+			default:	/* parent */
+				close(client_sockfd);
+				break;
+			case -1:
+				exitSysWithError("fork()");
 		}
-
-		if(ret == 0) {
-			printf("connection close with client: %s...\n", inet_ntoa(client.sin_addr));
-		} else if(ret == -1) {
-			exitSysWithError("recv()");
-		}
-		close(server_sockfd);
 	}
+	close(server_sockfd);	
 	exit(0);
 }
 
