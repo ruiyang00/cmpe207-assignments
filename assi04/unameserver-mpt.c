@@ -13,6 +13,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
+#include <sys/select.h>
 #define UDP 2
 #define TCP 1
 #define ON 1
@@ -34,50 +35,102 @@ struct UnameMap{
 
 struct Request{
 	int sockfd;
-	char *buffer;
-	struct sockaddr_in clientaddr;
+	struct sockaddr_in incoming;
 	int len;
 };
 
-void validateArgv(int argc,char **argv, int *portnum, int *trans_flag);
+
+void validateArgv(int argc,char **argv, int *portnum);
 void exitWithError();
 void exitSysWithError(char *call);
-void udpServer(char **argv, int *port_flag);
-void tcpServer(char **argv, int *port_flag);
+int passiveUDP(char **argv, int *port_flag, uint16_t *n);
+int passiveTCP(char **argv, int *port_flag, uint16_t *n);
 int unameCaller(char *buffer);
 void validatePortArg(char *buffer);
 int validateUnameArg(char *buffer, struct UnameMap *m);
 void removeSpace(char *buffer);
-void signal_handler(int sig);
-int tcp_sock_handler(int sock);
-int udp_sock_handler(struct Request *req);
+void tcp_sock_handler(int sock);
+void udp_sock_handler(struct Request *req);
+int MAX(int a, int b);
 
 int main(int argc, char **argv) {
-
 	/*set to ON if we have input after -port else OFF*/
 	int port_flag;
-	/*set to UDP|TCP*/
-	int trans_flag; //flag to check which transport specified 
-
+	struct sockaddr_in incoming;
+	uint16_t n; 					/*varible to hold the default port number*/
+	char   	 buffer[BUFFER_LEN];
+	int	   alen;
+	int    tmsock;                /* TCP master socket  */
+    int	   umsock;                /* UDP master socket  */
+	int	   nfds;
+    fd_set rfds;                 /* readable file descriptors */
+	pthread_t tid;
+	pthread_attr_t ta;
 	//TBD: check input argvi
-	validateArgv(argc, argv, &port_flag, &trans_flag);
+	validateArgv(argc, argv, &port_flag);
+
+
+	struct Request *req = malloc(sizeof(struct Request));
+
+
+	//create two passive sock descriptors for both tcp&udp
+	tmsock = passiveTCP(argv,&port_flag, &n);
+    umsock = passiveUDP(argv, &port_flag, &n);
 
 	
-	/*calling the server function to do work base on trans_flag*/
-	if(trans_flag == UDP) {
-		udpServer(argv, &port_flag);
-	}else if(trans_flag == TCP) {
-		tcpServer(argv, &port_flag);
-	} else {
-		exit(-1);
+	/* bit number of max fd */
+    nfds = MAX(tmsock, umsock) + 1;
+    FD_ZERO(&rfds);
+	
+
+	pthread_attr_init(&ta);
+	pthread_attr_setdetachstate(&ta, PTHREAD_CREATE_DETACHED);
+	
+	while(1) {
+		FD_SET(tmsock, &rfds);
+        FD_SET(umsock, &rfds);
+        if(select(nfds, &rfds, (fd_set *)0, (fd_set *)0, (struct timeval *)0) < 0){
+			exitSysWithError("select()");
+		}
+
+		if(FD_ISSET(tmsock, &rfds)) {
+            int tssock;
+			alen = sizeof(incoming);
+			tssock=accept(tmsock, (struct sockaddr *)&incoming, &alen);
+			if(tssock < 0) {
+				exitSysWithError("accept()");
+			}
+
+			
+			/*create another thread to handle it*/
+			if(pthread_create(&tid, &ta, (void * (*)(void *))tcp_sock_handler, (void *) tssock) < 0){
+				exitSysWithError("pthread_creat()");
+			}
+			
+		}
+
+		if(FD_ISSET(umsock, &rfds)) {
+			req->sockfd = umsock;
+			req->incoming = incoming; 
+			if(pthread_create(&tid, &ta, (void * (*)(void *))udp_sock_handler, req) < 0){
+        		exitSysWithError("pthread_creat()");
+			}
+		}
 	}
+
+	close(tmsock);
+	close(umsock);
 	return 0;
 }
 
-int tcp_sock_handler(int sock) {
+int MAX(int a, int b) {
+	return a > b ? a : b; 
+}
+
+void tcp_sock_handler(int sock) {
 		char buffer[BUFFER_LEN];
         int unameret, ret;
-		printf("sock=%d\n",sock);
+		memset(buffer, 0, sizeof buffer);
         while((ret = recv(sock, buffer, BUFFER_LEN, 0)) > 0) {
             removeSpace(buffer);
             unameret = unameCaller(buffer);
@@ -92,33 +145,31 @@ int tcp_sock_handler(int sock) {
             exitSysWithError("recv()");
         }
 		close(sock);
-		return 1;
 }
-int udp_sock_handler(struct Request *req) {
+void udp_sock_handler(struct Request *req) {
 	int unameret;
-	removeSpace(req->buffer);
-    unameret = unameCaller(req->buffer);
+	int alen;
+	char buffer[BUFFER_LEN];
+	alen = sizeof(req->incoming);
+	if(recvfrom(req->sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&req->incoming, &alen) < 0){
+		exitSysWithError("recvfrom()");
+	}	
+	removeSpace(buffer);
+
+    unameret = unameCaller(buffer);
     //TBD: sendto()
-    sendto(req->sockfd, req->buffer, strlen(req->buffer), 0, (struct sockaddr *)&req->clientaddr, req->len);
+    sendto(req->sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&req->incoming, alen);
+
     if(unameret == 0) {
 		exit(0);
-    }
-	return 0;
+	}
 }
 
 
-void signal_handler(int sig) {
-	int status;
-	while(wait3(&status, WNOHANG, (struct rusage*) 0) > 0);
-	return;
-}
-
-void udpServer(char **argv, int *port) {
+int passiveUDP(char **argv, int *port, uint16_t *n) {
 	int sockfd, len;
-    struct sockaddr_in servaddr, clientaddr;
-    char buffer[BUFFER_LEN];
-	pthread_attr_t ta;
-    pthread_t tid;
+    struct sockaddr_in servaddr;
+	uint16_t smport = *n;
     
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if(sockfd == -1) {
@@ -128,19 +179,20 @@ void udpServer(char **argv, int *port) {
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
     if(*port==OFF) {
-        servaddr.sin_port = htons(0);
-    }
+        servaddr.sin_port = htons(smport);
+	}
+
     if(*port == ON) {
-        validatePortArg(argv[3]);
+        validatePortArg(argv[2]);
     }
-    if(*port == ON && atoi(argv[3]) <= 2000) {
+    if(*port == ON && atoi(argv[2]) <= 2000) {
 
         printf("port=%d\n", *port);
         exitWithError("port number too small. Please input port number greater than 2000");
     }
 
-    if(*port == ON && atoi(argv[3]) > 2000) {
-        servaddr.sin_port = htons(atoi(argv[3]));
+    if(*port == ON && atoi(argv[2]) > 2000) {
+        servaddr.sin_port = htons(atoi(argv[2]));
     }
 
     //TBD:bind
@@ -156,43 +208,19 @@ void udpServer(char **argv, int *port) {
     }
 
     if(*port == OFF) {
-        printf("Server listening at port number: %u\n", ntohs(servaddr.sin_port));
+        printf("UDP Server listening at port number: %u\n", ntohs(servaddr.sin_port));
     }else if(*port == ON) {
-        printf("Server listening...\n");
+        printf("UDP Server is listening...\n");
     }
-
-	pthread_attr_init(&ta);
-    pthread_attr_setdetachstate(&ta, PTHREAD_CREATE_DETACHED);
 	
-	while(1) {
-        len = sizeof(clientaddr);
-
-		//TBD: recvfrom()
-		
-		ret = recvfrom(sockfd, buffer, BUFFER_LEN, 0, &clientaddr, &len);
-        buffer[ret] = '\0';
-		struct Request *req = malloc(sizeof(struct Request));
-		req->sockfd = sockfd;
-    	req->buffer = buffer;
-    	req->clientaddr = clientaddr;
-    	req->len=len;
-		
-		if(pthread_create(&tid, &ta, (void * (*)(void *))udp_sock_handler, req) < 0)
-            exitSysWithError("pthread_create()");
-
-
-    }
-	close(sockfd);
-    exit(0);
+	return sockfd;
 	
 }
 
-void tcpServer(char **argv, int *port) {
-	int server_sockfd, client_sockfd, client_len, ser_len;
-	struct sockaddr_in servaddr, client, sin;
-	char buffer[BUFFER_LEN];
-	pthread_attr_t ta;
-	pthread_t tid;
+int passiveTCP(char **argv, int *port, uint16_t *n) {
+
+	int server_sockfd, ser_len;
+	struct sockaddr_in servaddr;
 	
 	server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if(server_sockfd == -1) {
@@ -205,18 +233,17 @@ void tcpServer(char **argv, int *port) {
   		servaddr.sin_port = htons(0);
 	}
 	if(*port == ON) {
-		validatePortArg(argv[3]);
+		validatePortArg(argv[2]);
 	}
-	if(*port == ON && atoi(argv[3]) <= 2000) {
+	if(*port == ON && atoi(argv[2]) <= 2000) {
 
 		printf("port=%d\n", *port);
 		exitWithError("port number too small. Please input port number greater than 2000");
 	}
 
-	if(*port == ON && atoi(argv[3]) > 2000) {
-		servaddr.sin_port = htons(atoi(argv[3]));
+	if(*port == ON && atoi(argv[2]) > 2000) {
+		servaddr.sin_port = htons(atoi(argv[2]));
 	}
-
 	//TBD:bind
 	int ret = bind(server_sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr));
 	if(ret != 0) {
@@ -230,40 +257,20 @@ void tcpServer(char **argv, int *port) {
 	if(ret != 0) {
 		exitSysWithError("listen()");
 	}
+	
+	//printf() the current port that the server is listening at
 	ser_len = sizeof(server_sockfd);
 	if(getsockname(server_sockfd, (struct sockaddr*) &servaddr, &ser_len) == -1) {
 		exitWithError("getsockname()");
 	} 
 	if(*port == OFF) {
-		printf("Server listening at port number: %u\n", ntohs(servaddr.sin_port));
+		*n = ntohs(servaddr.sin_port);
+		printf("TCP Server listening at port number: %u\n", ntohs(servaddr.sin_port));
 	}else if(*port == ON) {
-		printf("Server listening...\n");
+		printf("TCP Server listening...\n");
 	}
-
-	pthread_attr_init(&ta);
-	pthread_attr_setdetachstate(&ta, PTHREAD_CREATE_DETACHED);
-
+	return server_sockfd;
 		
-	while(1) {
-		//TBD: accept()
-		client_len = sizeof(client);
-
-		client_sockfd = accept(server_sockfd, (struct sockaddr*) &client, &client_len);
-		if(client_sockfd < 0) {
-			if(errno==EINTR) {
-				continue;
-			}
-			exitSysWithError("accpet()");
-		
-		}
-		printf("client_sockfd=%d\n", client_sockfd);
-		
-		if(pthread_create(&tid, &ta, (void * (*)(void *))tcp_sock_handler, (void *)client_sockfd) < 0)
-			exitSysWithError("pthread_create()");	
-
-	}
-	close(server_sockfd);	
-	exit(0);
 }
 
 int unameCaller(char *buffer){
@@ -477,26 +484,17 @@ void exitWithError(char *call) {
     exit(-1);
 }
 
-void validateArgv(int argc, char **argv, int *portnum, int *trans_flag) {
+void validateArgv(int argc, char **argv, int *portnum) {
 	//unameserver -tcp|-udp -port PortNum
-	if(argc == 3|| argc > 4 || argc < 2) {
-		exitWithError("input arguments either too less/many");
-	}
-	if(argc == 4) {
+
+	if(argc == 3) {
 		*portnum = ON;	
-	}else if(argc == 2) {
+	}else if(argc == 1) {
 		*portnum = OFF;
-	}
-	if(argc == 4 && strcmp(argv[2], "-port") != 0) {
-		exitWithError("unrecognized option for argument 2. We only accept -port");
-	}
-	
-	if(strcmp(argv[1],"-tcp") == 0) {
-		*trans_flag = TCP;
-	} else if(strcmp(argv[1],"-udp") == 0) {
-		*trans_flag = UDP;
 	} else {
-		exitWithError("unrecognized transport. We only accept [-tcp|-udp]");
+		exitWithError("input arguments either too less/many");	
 	}
-	
-}
+	if(argc == 3 && strcmp(argv[1], "-port") != 0) {
+		exitWithError("unrecognized option for argument 1. We only accept -port");
+	}
+}	
