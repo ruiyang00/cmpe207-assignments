@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <ctype.h>
+#include <pthread.h>
 #include <arpa/inet.h>
 #include <string.h>
 #include <sys/types.h>
@@ -31,6 +32,13 @@ struct UnameMap{
 	int errorbit;
 };
 
+struct Request{
+	int sockfd;
+	char *buffer;
+	struct sockaddr_in clientaddr;
+	int len;
+};
+
 void validateArgv(int argc,char **argv, int *portnum, int *trans_flag);
 void exitWithError();
 void exitSysWithError(char *call);
@@ -41,8 +49,8 @@ void validatePortArg(char *buffer);
 int validateUnameArg(char *buffer, struct UnameMap *m);
 void removeSpace(char *buffer);
 void signal_handler(int sig);
-int tcp_sock_handler(int sock, char *buffer);
-int udp_sock_handler(int sock, char *buffer, struct sockaddr_in *clientaddr, int len, int unameret);
+int tcp_sock_handler(int sock);
+int udp_sock_handler(struct Request *req);
 
 int main(int argc, char **argv) {
 
@@ -66,10 +74,10 @@ int main(int argc, char **argv) {
 	return 0;
 }
 
-int tcp_sock_handler(int sock, char *buffer) {
-	//TBD: read()/recv()
-        memset(buffer, 0, sizeof buffer);
+int tcp_sock_handler(int sock) {
+		char buffer[BUFFER_LEN];
         int unameret, ret;
+		printf("sock=%d\n",sock);
         while((ret = recv(sock, buffer, BUFFER_LEN, 0)) > 0) {
             removeSpace(buffer);
             unameret = unameCaller(buffer);
@@ -86,16 +94,15 @@ int tcp_sock_handler(int sock, char *buffer) {
 		close(sock);
 		return 1;
 }
-int udp_sock_handler(int sockfd, char *buffer, struct sockaddr_in *clientaddr, int len, int unameret) {
-
-	removeSpace(buffer);
-    unameret = unameCaller(buffer);
+int udp_sock_handler(struct Request *req) {
+	int unameret;
+	removeSpace(req->buffer);
+    unameret = unameCaller(req->buffer);
     //TBD: sendto()
-    sendto(sockfd, buffer, strlen(buffer), 0, clientaddr, len);
+    sendto(req->sockfd, req->buffer, strlen(req->buffer), 0, (struct sockaddr *)&req->clientaddr, req->len);
     if(unameret == 0) {
 		exit(0);
     }
-	close(sockfd);
 	return 0;
 }
 
@@ -110,6 +117,8 @@ void udpServer(char **argv, int *port) {
 	int sockfd, len;
     struct sockaddr_in servaddr, clientaddr;
     char buffer[BUFFER_LEN];
+	pthread_attr_t ta;
+    pthread_t tid;
     
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if(sockfd == -1) {
@@ -152,36 +161,39 @@ void udpServer(char **argv, int *port) {
         printf("Server listening...\n");
     }
 
-	int unameret;
+	pthread_attr_init(&ta);
+    pthread_attr_setdetachstate(&ta, PTHREAD_CREATE_DETACHED);
 	
-	signal(SIGCHLD, signal_handler);
 	while(1) {
         len = sizeof(clientaddr);
 
 		//TBD: recvfrom()
+		
 		ret = recvfrom(sockfd, buffer, BUFFER_LEN, 0, &clientaddr, &len);
         buffer[ret] = '\0';
+		struct Request *req = malloc(sizeof(struct Request));
+		req->sockfd = sockfd;
+    	req->buffer = buffer;
+    	req->clientaddr = clientaddr;
+    	req->len=len;
+		
+		if(pthread_create(&tid, &ta, (void * (*)(void *))udp_sock_handler, req) < 0)
+            exitSysWithError("pthread_create()");
 
-		switch (fork()) {
-            case 0:     /* child */
-                exit(udp_sock_handler(sockfd, buffer, &clientaddr, len, unameret));
-            default:    /* parent */
-                break;
-            case -1:
-                exitSysWithError("fork()");
-        }
+
     }
 	close(sockfd);
     exit(0);
 	
-
-		
 }
 
 void tcpServer(char **argv, int *port) {
 	int server_sockfd, client_sockfd, client_len, ser_len;
 	struct sockaddr_in servaddr, client, sin;
 	char buffer[BUFFER_LEN];
+	pthread_attr_t ta;
+	pthread_t tid;
+	
 	server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if(server_sockfd == -1) {
         exitSysWithError("socket()");
@@ -228,9 +240,10 @@ void tcpServer(char **argv, int *port) {
 		printf("Server listening...\n");
 	}
 
-	/*clean up zombie children*/
-	signal(SIGCHLD, signal_handler);
-	
+	pthread_attr_init(&ta);
+	pthread_attr_setdetachstate(&ta, PTHREAD_CREATE_DETACHED);
+
+		
 	while(1) {
 		//TBD: accept()
 		client_len = sizeof(client);
@@ -241,18 +254,13 @@ void tcpServer(char **argv, int *port) {
 				continue;
 			}
 			exitSysWithError("accpet()");
-		}
 		
-		switch (fork()) {
-			case 0:		/* child */
-				close(server_sockfd);
-				exit(tcp_sock_handler(client_sockfd, buffer));
-			default:	/* parent */
-				close(client_sockfd);
-				break;
-			case -1:
-				exitSysWithError("fork()");
 		}
+		printf("client_sockfd=%d\n", client_sockfd);
+		
+		if(pthread_create(&tid, &ta, (void * (*)(void *))tcp_sock_handler, (void *)client_sockfd) < 0)
+			exitSysWithError("pthread_create()");	
+
 	}
 	close(server_sockfd);	
 	exit(0);
