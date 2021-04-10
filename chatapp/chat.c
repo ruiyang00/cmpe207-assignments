@@ -124,7 +124,8 @@ void ActiveChat(int port, char *peer){
 
     printf("peer=%s\n", peer);
     printf("addr=%s\n", inet_ntoa(servaddr.sin_addr));
-
+    
+    // cache chat name
     SetUpName();
 
     int ret = connect(server_sock, (struct sockaddr*) &servaddr, sizeof(servaddr));
