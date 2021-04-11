@@ -17,10 +17,16 @@
 #define BYE_OPTCODE 3
 #define ACTIVE 1
 #define PASSIVE 2
-char *my_name;
-char *peer_name;
+char my_name[100];
+char peer_name[100];
 int client_sock = 0;
 int server_sock=0;
+
+struct MsgBuffer{
+    unsigned short len;
+    unsigned short optcode;
+    char message[BUFFER_LEN];
+};
 
 
 
@@ -34,6 +40,7 @@ void ActiveChat();
 void ActiveRecvMessage();
 void PassiveRecvMessage();
 void SetUpName();
+void ExchangeName();
 
 
 int main(int argc, char **argv){
@@ -77,14 +84,6 @@ int main(int argc, char **argv){
         }
     }
 
-    if(peer == NULL) {
-        printf("peer=Null\n");
-    }
-
-    printf("peerN=%s\n", peer);
-    printf("activeflag=%d\n", activeflag);
-    printf("passiveflag=%d\n", passiveflag);
-    printf("portnum=%d\n", portnum);
 
     if((passiveflag == 1 && activeflag == 1) || (activeflag == 1 && argc !=6) || (passiveflag == 1 && argc != 4)){
         ExitWithOptError();
@@ -108,7 +107,6 @@ void ActiveChat(int port, char *peer){
     char user_input[BUFFER_LEN];
 
     server_sock = socket(AF_INET, SOCK_STREAM, 0);
-    printf("server_sockfd=%d\n", server_sock);
     if(server_sock == -1) {
         ExitSysWithError("socket()");
     }
@@ -122,9 +120,7 @@ void ActiveChat(int port, char *peer){
     servaddr.sin_port = htons(port); 
     memcpy(&servaddr.sin_addr, he->h_addr_list[0], he->h_length);
 
-    printf("peer=%s\n", peer);
-    printf("addr=%s\n", inet_ntoa(servaddr.sin_addr));
-    
+
     // cache chat name
     SetUpName();
 
@@ -132,7 +128,7 @@ void ActiveChat(int port, char *peer){
     if(ret == -1) {
         ExitSysWithError("connect()");
     }
-    printf("PassiveChat() server_sock=%d\n", server_sock);
+
 
     pthread_t input_thread;
 
@@ -145,29 +141,37 @@ void ActiveChat(int port, char *peer){
 
     int n;
     char read_buffer[BUFFER_LEN];
-    while((n = recv(server_sock, read_buffer, BUFFER_LEN, 0)) > 0) {
-        printf("%s\n",read_buffer);
-        memset(read_buffer, 0, sizeof(read_buffer));
+    uint16_t len;
+    int opt;
+    struct MsgBuffer m;
+    memset(&m, 0, sizeof(m));
+    ExchangeName();
+    while((n = recv(server_sock, &m, sizeof m, 0)) > 0) {
+        len = ntohs(m.len);
+        opt = (int)ntohs(m.optcode);
+        if(opt == NAME_OPTCODE){
+            memcpy(peer_name, m.message, strlen(m.message));
+        } else if(opt == TEXT_OPTCODE) {
+            printf("%s>%s\n", peer_name, m.message);
+        } else if(opt == BYE_OPTCODE) {
+            break;
+        }
+
+        /*
+
+           else if(opt == TEXT_OPTCODE) {
+           printf("%s>%s", peer_name, m.message); 
+           } else if(opt == BYE_OPTCODE) {
+           exit(0);
+           } else {
+           continue;
+           }*/
+        //memset(&m, 0, sizeof(m));
     }
     if(n == -1) {
         ExitSysWithError("recv()");
     }
 
-    //ActiveRecvMessage(server_sock);
-    exit(0);
-}
-
-void ActiveRecvMessage(int server_sock){
-    int n;
-    char read_buffer[BUFFER_LEN];
-    
-    printf("Active() server_sock=%d\n",server_sock);
-    while((n = recv(server_sock, read_buffer, BUFFER_LEN, 0)) > 0) {
-    }
-    printf("buffer=%s\n",read_buffer);
-    if(n == -1) {
-        ExitSysWithError("recv()");
-    }
     exit(0);
 }
 
@@ -187,92 +191,118 @@ void PassiveChat(int port){
 
 
 
-
-
     pbuffer=read_buffer;
 
+
+    uint16_t l;
+    int opt;
+    struct MsgBuffer m;
     while(1) {
         len = sizeof(client);
         client_sock = accept(server_sock, (struct sockaddr*) &client, &len);
-        printf("Passive() client_sock=%d\n", client_sock);
         pthread_t input_thread;
         pthread_create(&input_thread, NULL, (void * (*)(void *))SendMsg, NULL);
         pthread_detach(input_thread);
-        printf("after accept()\n");
-        memset(read_buffer, 0, sizeof(read_buffer));
-        while((ret = recv(client_sock, read_buffer, BUFFER_LEN, 0)) > 0){
-            printf("%s\n", read_buffer);
-            memset(read_buffer, 0, sizeof(read_buffer));
+        memset(&m, 0, sizeof(m));
+        ExchangeName();
+        while((ret = recv(client_sock, &m, sizeof m, 0)) > 0){
+            l = ntohs(m.len);
+            opt = (int)ntohs(m.optcode);
+
+            if(opt == NAME_OPTCODE){
+                memcpy(peer_name, m.message, strlen(m.message));
+            } else if(opt == TEXT_OPTCODE) {
+                printf("%s>%s\n", peer_name, m.message);
+            } else if(opt == BYE_OPTCODE) {
+                break;
+            }
+
+
+            /*
+               if(opt == NAME_OPTCODE){
+               printf("inside opt=NAME_OPTCODE\n");
+               printf("peer_name=%s\n", peer_name);
+               printf("m.message=%s\n", m.message);
+            //memcpy(peer_name, &m.message, sizeof(m.message));
+            printf("peer_name=%s\n", peer_name);
+            } 
+
+
+
+            else if(opt == TEXT_OPTCODE) {
+            printf("%s>%s", peer_name, m.message);
+            } else if(opt == BYE_OPTCODE) {
+            break;
+            } else {
+            continue;
+            }*/
+            //memset(&m, 0, sizeof(m));
         }
 
-        printf("after recv()\n");
         if(ret == -1) {
             ExitSysWithError("recv()");
         }
         close(client_sock);
         client_sock = 0;
-        printf("terminating the channle, reading to accept new connection....\n");
+        printf("terminating the chat with %s, ready to accept new connection....\n", peer_name);
     }
     exit(0); 
 }
 
 
-void PassiveRecvMessage(int server_sock){
-    int sock,len, ret_val;
-    struct sockaddr_in client;
-    char read_buffer[BUFFER_LEN];
+void ExchangeName() {
+    struct MsgBuffer m; 
+    memset(&m, 0, sizeof(m));
+    m.optcode = htons(NAME_OPTCODE);
+    memcpy(&m.message, my_name, sizeof my_name);
+    m.len = htons(sizeof(m.optcode) + strlen(m.message));
 
-    while(1) {
-        len = sizeof(client);
-        client_sock = accept(server_sock, (struct sockaddr*) &client, &len);
-        memset(read_buffer, 0, sizeof(read_buffer));
-        while((ret_val = recv(client_sock, read_buffer, BUFFER_LEN, 0)) > 0){
-
-        }
-        printf("buffer=%s\n",read_buffer);
-        if(ret_val == -1) {
-            ExitSysWithError("recv()");
-        }
-        close(client_sock);
-
+    if(client_sock != 0) {
+        send(client_sock, &m, sizeof m, 0);
     }
-    client_sock = 0;
-    exit(0);
+
+    if(server_sock != 0) {
+        send(server_sock, &m, sizeof m, 0);
+    }
 }
 
-void SendMsg(void *ptr){
-    char write_buffer[BUFFER_LEN];
-    // exchange names
-
-    printf("inside SendMsg()\n");
-    printf("SendMsg() server_sock=%d\n", server_sock);
-    printf("SendMsg() client_sock=%d\n", client_sock);
+void SendMsg(){
+    char user_input_buffer[BUFFER_LEN];
+    //ExchangeName();
+    struct MsgBuffer m;
 
     while(1) {
-        memset(write_buffer, 0, sizeof(write_buffer));
-        fgets(write_buffer, sizeof(write_buffer), stdin);
-        write_buffer[strlen(write_buffer) - 1] = '\0';
+        memset(&m, 0, sizeof(m));
+        memset(user_input_buffer, 0, sizeof(user_input_buffer));
+        fgets(user_input_buffer, sizeof(user_input_buffer), stdin);
+        user_input_buffer[strlen(user_input_buffer) - 1] = '\0';
+        if(strcasecmp(user_input_buffer, "bye") == 0) {
+            m.optcode = htons(BYE_OPTCODE);
+        } else {
+            m.optcode = htons(TEXT_OPTCODE);
+        }
+
+        m.len = htons(1 + strlen(user_input_buffer));
+        memcpy(&m.message, user_input_buffer, strlen(user_input_buffer));
 
         //send to peer
         if(client_sock != 0) {
-            write(client_sock, write_buffer,strlen(write_buffer));
+            send(client_sock, &m,sizeof(m), 0);
         }
 
         if(server_sock != 0) {
-            write(server_sock, write_buffer,strlen(write_buffer));
+            send(server_sock, &m,sizeof(m), 0);
         }
-        printf("after write()\n");
     }
 }
 
 void SetUpName(){
     char read_buffer[BUFFER_LEN];
+    memset(read_buffer, 0, sizeof read_buffer);
     printf("Enter Your Name: ");
     fgets(read_buffer, sizeof(read_buffer), stdin);
-    printf("fgets()=%s\n", read_buffer);
     read_buffer[strlen(read_buffer) - 1] = '\0';
-    my_name = read_buffer;
-    printf("Name=%s\n", my_name);
+    memcpy(my_name, read_buffer, strlen(read_buffer));
 }
 
 int GetTCPSock(int port) {
