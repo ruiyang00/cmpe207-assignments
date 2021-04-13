@@ -12,11 +12,11 @@
 #include <netdb.h>
 
 #define BUFFER_LEN 1024
-#define NAME_OPTCODE 1
-#define TEXT_OPTCODE 2
-#define BYE_OPTCODE 3
 #define ACTIVE 1
 #define PASSIVE 2
+char NAME_OPTCODE='1';
+char TEXT_OPTCODE='2';
+char BYE_OPTCODE='3';
 char my_name[100];
 char peer_name[100];
 int client_sock = 0;
@@ -140,33 +140,30 @@ void ActiveChat(int port, char *peer){
 
 
     int n;
+    uint16_t l;
+    char opt;
+    char text[BUFFER_LEN];
     char read_buffer[BUFFER_LEN];
-    uint16_t len;
-    int opt;
-    struct MsgBuffer m;
-    memset(&m, 0, sizeof(m));
+
+
+    memset(read_buffer, 0, sizeof(read_buffer));
+    memset(text, 0, sizeof(text));
     ExchangeName();
-    while((n = recv(server_sock, &m, sizeof m, 0)) > 0) {
-        len = ntohs(m.len);
-        opt = (int)ntohs(m.optcode);
+    while((n = recv(server_sock, read_buffer, sizeof read_buffer, 0)) > 0) {
+        memset(text, 0, sizeof(text));
+        memcpy(&l, read_buffer, sizeof(l));
+        memcpy(&opt, read_buffer + sizeof(l), sizeof(opt));
+        memcpy(text, read_buffer + sizeof(l) + sizeof(opt), ntohs(l) - sizeof(char));
+
+
         if(opt == NAME_OPTCODE){
-            memcpy(peer_name, m.message, strlen(m.message));
+            memcpy(peer_name, text, strlen(text));
         } else if(opt == TEXT_OPTCODE) {
-            printf("%s>%s\n", peer_name, m.message);
+            printf("%s>%s\n", peer_name, text);
         } else if(opt == BYE_OPTCODE) {
             break;
         }
 
-        /*
-
-           else if(opt == TEXT_OPTCODE) {
-           printf("%s>%s", peer_name, m.message); 
-           } else if(opt == BYE_OPTCODE) {
-           exit(0);
-           } else {
-           continue;
-           }*/
-        //memset(&m, 0, sizeof(m));
     }
     if(n == -1) {
         ExitSysWithError("recv()");
@@ -178,10 +175,7 @@ void ActiveChat(int port, char *peer){
 
 void PassiveChat(int port){
     int server_sock, ret, len;
-    char read_buffer[BUFFER_LEN];
     struct sockaddr_in client;
-    char *pbuffer;
-
 
     // set up the chat name on passive side: my_name
     SetUpName(); 
@@ -191,28 +185,31 @@ void PassiveChat(int port){
 
 
 
-    pbuffer=read_buffer;
 
 
     uint16_t l;
-    int opt;
-    struct MsgBuffer m;
+    char opt;
+    char text[BUFFER_LEN];
+    char read_buffer[BUFFER_LEN];
     while(1) {
         len = sizeof(client);
         client_sock = accept(server_sock, (struct sockaddr*) &client, &len);
         pthread_t input_thread;
         pthread_create(&input_thread, NULL, (void * (*)(void *))SendMsg, NULL);
         pthread_detach(input_thread);
-        memset(&m, 0, sizeof(m));
+        memset(read_buffer, 0, sizeof(read_buffer));
+        memset(text, 0, sizeof(text));
         ExchangeName();
-        while((ret = recv(client_sock, &m, sizeof m, 0)) > 0){
-            l = ntohs(m.len);
-            opt = (int)ntohs(m.optcode);
+        while((ret = recv(client_sock, read_buffer, sizeof read_buffer, 0)) > 0){
 
+            memset(text, 0, sizeof(text));
+            memcpy(&l, read_buffer, sizeof(l));
+            memcpy(&opt, read_buffer + sizeof(l), sizeof(opt));
+            memcpy(text, read_buffer + sizeof(l) + sizeof(opt), ntohs(len) - sizeof(char));
             if(opt == NAME_OPTCODE){
-                memcpy(peer_name, m.message, strlen(m.message));
+                memcpy(peer_name, text, strlen(text));
             } else if(opt == TEXT_OPTCODE) {
-                printf("%s>%s\n", peer_name, m.message);
+                printf("%s>%s\n", peer_name, text);
             } else if(opt == BYE_OPTCODE) {
                 break;
             }
@@ -236,7 +233,7 @@ void PassiveChat(int port){
             } else {
             continue;
             }*/
-            //memset(&m, 0, sizeof(m));
+            //memset(read_buffer, 0, sizeof(read_buffer));
         }
 
         if(ret == -1) {
@@ -245,54 +242,75 @@ void PassiveChat(int port){
         close(client_sock);
         client_sock = 0;
         printf("terminating the chat with %s, ready to accept new connection....\n", peer_name);
+        memset(peer_name, 0, sizeof(peer_name));
     }
     exit(0); 
 }
 
 
 void ExchangeName() {
-    struct MsgBuffer m; 
-    memset(&m, 0, sizeof(m));
-    m.optcode = htons(NAME_OPTCODE);
-    memcpy(&m.message, my_name, sizeof my_name);
-    m.len = htons(sizeof(m.optcode) + strlen(m.message));
+    char buffer[BUFFER_LEN];
+    int len;
+    char opcode;
+    uint16_t temp;
+
+    len = sizeof(char) + strlen(my_name);
+    temp = htons(len);
+    opcode = NAME_OPTCODE;
+    // copy bytes(len, opcode, text) into buffer
+    memset(buffer, 0, sizeof(buffer));
+    memcpy(buffer, &temp, sizeof(temp));
+    memcpy(buffer + sizeof(temp), &opcode, sizeof(opcode));
+    memcpy(buffer + sizeof(temp) + sizeof(opcode), my_name, strlen(my_name));
+
 
     if(client_sock != 0) {
-        send(client_sock, &m, sizeof m, 0);
+        send(client_sock, buffer, sizeof buffer, 0);
     }
 
     if(server_sock != 0) {
-        send(server_sock, &m, sizeof m, 0);
+        send(server_sock, buffer, sizeof buffer, 0);
     }
+
 }
 
 void SendMsg(){
     char user_input_buffer[BUFFER_LEN];
-    //ExchangeName();
-    struct MsgBuffer m;
+
+    char write_buffer[BUFFER_LEN];
+    int len;
+    char opcode;
+    uint16_t temp;
 
     while(1) {
-        memset(&m, 0, sizeof(m));
+        memset(write_buffer, 0, sizeof(write_buffer));
         memset(user_input_buffer, 0, sizeof(user_input_buffer));
         fgets(user_input_buffer, sizeof(user_input_buffer), stdin);
         user_input_buffer[strlen(user_input_buffer) - 1] = '\0';
         if(strcasecmp(user_input_buffer, "bye") == 0) {
-            m.optcode = htons(BYE_OPTCODE);
+            opcode = BYE_OPTCODE;
         } else {
-            m.optcode = htons(TEXT_OPTCODE);
+            opcode = TEXT_OPTCODE;
         }
 
-        m.len = htons(1 + strlen(user_input_buffer));
-        memcpy(&m.message, user_input_buffer, strlen(user_input_buffer));
+
+        len = sizeof(char) + strlen(user_input_buffer);
+        temp = htons(len);
+        memcpy(write_buffer, &temp, sizeof(temp));
+        memcpy(write_buffer + sizeof(temp), &opcode, sizeof(opcode));
+        memcpy(write_buffer + sizeof(temp) + sizeof(opcode), user_input_buffer, strlen(user_input_buffer));
+
+
 
         //send to peer
         if(client_sock != 0) {
-            send(client_sock, &m,sizeof(m), 0);
+            send(client_sock, write_buffer,sizeof(write_buffer), 0);
         }
 
         if(server_sock != 0) {
-            send(server_sock, &m,sizeof(m), 0);
+            send(server_sock, write_buffer,sizeof(write_buffer), 0);
         }
+
     }
 }
 
