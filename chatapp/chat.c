@@ -204,26 +204,6 @@ void PassiveChat(int port){
                 break;
             }
 
-
-            /*
-               if(opt == NAME_OPTCODE){
-               printf("inside opt=NAME_OPTCODE\n");
-               printf("peer_name=%s\n", peer_name);
-               printf("m.message=%s\n", m.message);
-            //memcpy(peer_name, &m.message, sizeof(m.message));
-            printf("peer_name=%s\n", peer_name);
-            } 
-
-
-
-            else if(opt == TEXT_OPTCODE) {
-            printf("%s>%s", peer_name, m.message);
-            } else if(opt == BYE_OPTCODE) {
-            break;
-            } else {
-            continue;
-            }*/
-            //memset(read_buffer, 0, sizeof(read_buffer));
         }
 
         if(ret == -1) {
