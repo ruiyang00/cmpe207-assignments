@@ -22,13 +22,6 @@ char peer_name[100];
 int client_sock = 0;
 int server_sock=0;
 
-struct MsgBuffer{
-    unsigned short len;
-    unsigned short optcode;
-    char message[BUFFER_LEN];
-};
-
-
 
 
 void ExitSysWithError(char *call);
@@ -184,9 +177,6 @@ void PassiveChat(int port){
     server_sock = GetTCPSock(port);
 
 
-
-
-
     uint16_t l;
     char opt;
     char text[BUFFER_LEN];
@@ -205,7 +195,7 @@ void PassiveChat(int port){
             memset(text, 0, sizeof(text));
             memcpy(&l, read_buffer, sizeof(l));
             memcpy(&opt, read_buffer + sizeof(l), sizeof(opt));
-            memcpy(text, read_buffer + sizeof(l) + sizeof(opt), ntohs(len) - sizeof(char));
+            memcpy(text, read_buffer + sizeof(l) + sizeof(opt), ntohs(l) - sizeof(char));
             if(opt == NAME_OPTCODE){
                 memcpy(peer_name, text, strlen(text));
             } else if(opt == TEXT_OPTCODE) {
