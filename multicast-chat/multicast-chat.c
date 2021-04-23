@@ -36,6 +36,7 @@ void InitName();
 void EnableLoopBack();
 void SetTTL();
 void JoinGroup(); 
+void LeaveGroup();
 void ReuseAddr();
 
 int main(int argc, char **argv){
