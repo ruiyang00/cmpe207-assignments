@@ -190,6 +190,12 @@ void JoinGroup() {
     }
 }
 
+void LeaveGroup(){
+    if(setsockopt(udp_sock, IPPROTO_IP, IP_DROP_MEMBERSHIP, &group, sizeof(group)) < 0) {
+        ExitSysWithError("JoinGroup()");
+    }
+}
+
 void EnableLoopBack(){
     int loop_val = 1;
     if(setsockopt(udp_sock, IPPROTO_IP, IP_MULTICAST_LOOP, &loop_val, sizeof(loop_val)) < 0) {
@@ -241,7 +247,7 @@ void SendMessage(){
             if(sendto(udp_sock, write_buffer, sizeof(write_buffer), 0, (struct sockaddr*) &multiAddr, sizeof(multiAddr)) < 0) {
                 ExitSysWithError("SendMessage() -> sendto()");
             }
-
+            LeaveGroup();
             exit(0);
         } else {
             /*dump data(opcode:name_len:name_ascii:text_len(network-byte-order):text_ascii) into write buffer */
